@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bounoable/deepl"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/exp/slices"
@@ -191,6 +192,10 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 			fmt.Fprintf(&sb, "[img-%d] ", i)
 		}
 
+		if err := translateFrom(c, "uk", &req.Prompt); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		sb.WriteString(req.Prompt)
 
 		p, err := Prompt(req.Template, req.System, sb.String(), "", true)
@@ -225,6 +230,11 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 		fn := func(r llm.CompletionResponse) {
 			// Build up the full response
 			if _, err := generated.WriteString(r.Content); err != nil {
+				ch <- gin.H{"error": err.Error()}
+				return
+			}
+
+			if err := translateTo(c, "uk", &r.Content); err != nil {
 				ch <- gin.H{"error": err.Error()}
 				return
 			}
@@ -1337,4 +1347,34 @@ func (s *Server) ChatHandler(c *gin.Context) {
 	}
 
 	streamResponse(c, ch)
+}
+
+var deeplApi = os.Getenv("DEEPL_API_KEY")
+
+func translateTo(ctx context.Context, lang string, s *string) error {
+	if lang == "" || deeplApi == "" {
+		return nil
+	}
+	client := deepl.New(deeplApi)
+	en := deepl.SourceLang(deepl.English)
+	trd, _, err := client.Translate(ctx, *s, deepl.Language(lang), en)
+	if err != nil {
+		return err
+	}
+	*s = trd
+	return nil
+}
+
+func translateFrom(ctx context.Context, lang string, s *string) error {
+	if lang == "" || deeplApi == "" {
+		return nil
+	}
+	client := deepl.New(deeplApi)
+	source := deepl.SourceLang(deepl.Language(lang))
+	trd, _, err := client.Translate(ctx, *s, deepl.English, source)
+	if err != nil {
+		return err
+	}
+	*s = trd
+	return nil
 }
