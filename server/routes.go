@@ -192,10 +192,6 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 			fmt.Fprintf(&sb, "[img-%d] ", i)
 		}
 
-		if err := translateFrom(c, "uk", &req.Prompt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
 		sb.WriteString(req.Prompt)
 
 		p, err := Prompt(req.Template, req.System, sb.String(), "", true)
@@ -230,11 +226,6 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 		fn := func(r llm.CompletionResponse) {
 			// Build up the full response
 			if _, err := generated.WriteString(r.Content); err != nil {
-				ch <- gin.H{"error": err.Error()}
-				return
-			}
-
-			if err := translateTo(c, "uk", &r.Content); err != nil {
 				ch <- gin.H{"error": err.Error()}
 				return
 			}
@@ -1243,6 +1234,11 @@ func (s *Server) ChatHandler(c *gin.Context) {
 		}, req.Messages...)
 	}
 
+	if err := translateTo(c, "uk", &req.Messages[1].Content); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	prompt, err := chatPrompt(c.Request.Context(), runner, model.Template, req.Messages, opts.NumCtx)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1325,6 +1321,12 @@ func (s *Server) ChatHandler(c *gin.Context) {
 		for resp := range ch {
 			switch r := resp.(type) {
 			case api.ChatResponse:
+				err := translateFrom(c, "uk", &r.Message.Content)
+				if err != nil {
+					herr := gin.H{"error": err.Error()}
+					c.JSON(http.StatusInternalServerError, herr)
+					return
+				}
 				sb.WriteString(r.Message.Content)
 				final = r
 			case gin.H:
